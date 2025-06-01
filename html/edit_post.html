@@ -1,0 +1,45 @@
+{{define "edit_post"}}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+     <link rel="stylesheet" href="/css/css.css">
+  <link rel="stylesheet" href="/css/main.css">
+  <meta charset="UTF-8">
+  <title>Редактировать пост</title>
+</head>
+<body>
+  <h2>Редактировать пост #{{.PostID}}</h2>
+  <form action="/posts/edit" method="POST" enctype="multipart/form-data">
+    <input type="hidden" name="post_id" value="{{.PostID}}">
+    <div>
+      <label>Ваш логин:</label>
+      <input type="text" name="username" value="{{.Username}}" disabled>
+    </div>
+    <div>
+      <label>Текст:</label>
+      <textarea name="content" rows="6" required>{{.Content}}</textarea>
+    </div>
+
+    {{/* Показываем старые картинки */}}
+    {{if .ImageIDs}}
+      <div style="margin-top:10px;">
+        <p>Текущие фото:</p>
+        {{range .ImageIDs}}
+          <img src="/images/{{.}}" style="max-width:200px; margin-right:5px;"><br>
+        {{end}}
+      </div>
+    {{end}}
+
+    <div style="margin-top:10px;">
+      <label for="new_image">Загрузить новое фото (заменит старое):</label>
+      <input type="file" name="image" id="new_image" accept="image/*">
+    </div>
+
+    <div style="margin-top:15px;">
+      <button type="submit">Сохранить</button>
+      <a href="/">Отмена</a>
+    </div>
+  </form>
+</body>
+</html>
+{{end}}
