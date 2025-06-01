@@ -8,22 +8,19 @@
   <link rel="stylesheet" href="/css/main.css">
 </head>
 <body>
-  <!-- Шапка сайта -->
+  <!-- Шапка сайта (регистрацию убрали) -->
   <div class="header">
-    <a href="/users/new" class="register-button">Зарегистрироваться</a>
+    <!-- Здесь можно вывести что-то вроде логотипа или просто пусто -->
+    <h2>Мой Форум</h2>
   </div>
 
   <div class="container">
-    <!-- Левый сайдбар: создание треда + список тредов -->
+    <!-- Левый сайдбар: форма создания треда + список тредов -->
     <div class="sidebar-left">
       <h3>Создать тред</h3>
       <form action="/threads" method="POST">
-        <div>
-          <input type="text" name="title" placeholder="Заголовок треда">
-        </div>
-        <div>
-          <button type="submit">Создать тред</button>
-        </div>
+        <div><input type="text" name="title" placeholder="Заголовок треда"></div>
+        <div><button type="submit">Создать тред</button></div>
       </form>
 
       <hr/>
@@ -45,7 +42,7 @@
       </ul>
     </div>
 
-    <!-- Центральная колонка: последние посты или посты выбранного треда -->
+    <!-- Центральная колонка: показываем либо последние посты, либо посты выбранного треда -->
     <div class="content">
       {{if .CurrentThread}}
         <h2>Тред: {{.CurrentThread.Title}}</h2>
@@ -57,14 +54,12 @@
       {{if .Posts}}
         {{range .Posts}}
           {{ $post := . }}
-          <div class="post" style="margin-bottom: 20px;">
+          <div class="post" style="margin-bottom:20px;">
             <div class="post-header">
               {{if $.CurrentThread}}
-                <!-- Пост из конкретного треда: имя и время -->
                 <span class="username">{{.Username}}</span> &bull;
                 <span class="created-at">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</span>
               {{else}}
-                <!-- Пост “из всех тредов”: ссылка на тред + имя + время -->
                 <span class="thread-link">
                   <a href="/?thread_id={{.ThreadID}}">Тред #{{.ThreadID}}</a>
                 </span>
@@ -74,12 +69,12 @@
               {{end}}
             </div>
 
-            <div class="post-content" style="margin-top: 8px;">
+            <div class="post-content" style="margin-top:8px;">
               {{.Content}}
             </div>
 
             {{if .ImageIDs}}
-              <div class="post-images" style="margin-top: 8px;">
+              <div class="post-images" style="margin-top:8px;">
                 {{range .ImageIDs}}
                   <img src="/images/{{.}}" 
                        alt="Картинка поста №{{ $post.PostID }}" 
@@ -88,17 +83,27 @@
               </div>
             {{end}}
 
-            <!-- Блок комментариев под каждым постом -->
-            <div class="comments-section" style="margin-top: 12px; padding-left: 20px;">
+            <!-- Блок комментариев -->
+            <div class="comments-section" style="margin-top:12px; padding-left:20px;">
               <h4>Комментарии</h4>
               {{if .Comments}}
                 {{range .Comments}}
-                  <div class="comment" style="margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">
+                  {{ $comment := . }}
+                  <div class="comment" style="margin-bottom:8px; border-bottom:1px solid #eee; padding-bottom:5px;">
                     <span class="comment-username"><b>{{.Username}}</b></span> &bull;
                     <span class="comment-time">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</span>
-                    <div class="comment-content" style="margin-top: 4px;">
+                    <div class="comment-content" style="margin-top:4px;">
                       {{.Content}}
                     </div>
+                    {{if .ImageIDs}}
+                      <div class="comment-images" style="margin-top:4px;">
+                        {{range .ImageIDs}}
+                          <img src="/images/{{.}}" 
+                               alt="Картинка комментария №{{ $comment.CommentID }}" 
+                               style="max-width:200px;margin-top:4px;">
+                        {{end}}
+                      </div>
+                    {{end}}
                   </div>
                 {{end}}
               {{else}}
@@ -106,25 +111,30 @@
               {{end}}
             </div>
 
-            <!-- Форма добавления нового комментария под каждым постом -->
-            <div class="add-comment-form" style="margin-top: 10px; padding-left: 20px;">
-              <form action="/comments" method="POST">
-                <!-- Нужные скрытые поля -->
+            <!-- Форма добавления комментария под каждым постом -->
+            <div class="add-comment-form" style="margin-top:10px; padding-left:20px;">
+              <form action="/comments" method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="thread_id" value="{{if $.CurrentThread}}{{$.CurrentThread.ThreadID}}{{else}}0{{end}}">
                 <input type="hidden" name="post_id" value="{{ $post.PostID }}">
+                <!-- user_id=1 (фиксированный) -->
                 <input type="hidden" name="user_id" value="1">
-                <!-- Поле redirect_thread: если был текущий тред, вернёмся на ?thread_id=… -->
+                <!-- Если был выбран конкретный тред, вернёмся на /?thread_id=… -->
                 {{if $.CurrentThread}}
                   <input type="hidden" name="redirect_thread" value="1">
                 {{end}}
-                <div>
+                <div style="margin-bottom:5px;">
                   <textarea name="content" rows="2" placeholder="Ваш комментарий"></textarea>
                 </div>
-                <div style="margin-top: 5px;">
+                <div style="margin-bottom:5px;">
+                  <label for="image">Фото (необязательно):</label>
+                  <input type="file" name="image" id="image" accept="image/*">
+                </div>
+                <div>
                   <button type="submit">Добавить комментарий</button>
                 </div>
               </form>
             </div>
+
           </div>
           <hr/>
         {{end}}
@@ -152,16 +162,16 @@
 
         <input type="hidden" name="user_id" value="1">
 
-        <div style="margin-top: 8px;">
-          <textarea name="content" rows="4" placeholder="Содержание нового поста"></textarea>
+        <div style="margin-top:8px;">
+          <textarea name="content" rows="4" placeholder="Текст нового поста"></textarea>
         </div>
 
-        <div style="margin-top: 8px;">
-          <label for="image">Картинка (необязательно):</label>
+        <div style="margin-top:8px;">
+          <label for="image">Фото (необязательно):</label>
           <input type="file" name="image" id="image" accept="image/*">
         </div>
 
-        <div style="margin-top: 8px;">
+        <div style="margin-top:8px;">
           <button type="submit">Создать пост</button>
         </div>
       </form>
