@@ -1,0 +1,172 @@
+{{define "main"}}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Форум</title>
+  <link rel="stylesheet" href="/css/css.css">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <!-- Шапка сайта -->
+  <div class="header">
+    <a href="/users/new" class="register-button">Зарегистрироваться</a>
+  </div>
+
+  <div class="container">
+    <!-- Левый сайдбар: создание треда + список тредов -->
+    <div class="sidebar-left">
+      <h3>Создать тред</h3>
+      <form action="/threads" method="POST">
+        <div>
+          <input type="text" name="title" placeholder="Заголовок треда">
+        </div>
+        <div>
+          <button type="submit">Создать тред</button>
+        </div>
+      </form>
+
+      <hr/>
+
+      <h3>Список тредов</h3>
+      <ul>
+        {{if .Threads}}
+          {{range .Threads}}
+            <li>
+              <a href="/?thread_id={{.ThreadID}}">{{.Title}}</a>
+              <span style="color:#666;font-size:0.9em;">
+                ({{.CreatedAt.Format "2006-01-02 15:04"}})
+              </span>
+            </li>
+          {{end}}
+        {{else}}
+          <li>Тредов пока нет.</li>
+        {{end}}
+      </ul>
+    </div>
+
+    <!-- Центральная колонка: последние посты или посты выбранного треда -->
+    <div class="content">
+      {{if .CurrentThread}}
+        <h2>Тред: {{.CurrentThread.Title}}</h2>
+        <p><a href="/">← Показать все последние посты</a></p>
+      {{else}}
+        <h2>Последние посты</h2>
+      {{end}}
+
+      {{if .Posts}}
+        {{range .Posts}}
+          {{ $post := . }}
+          <div class="post" style="margin-bottom: 20px;">
+            <div class="post-header">
+              {{if $.CurrentThread}}
+                <!-- Пост из конкретного треда: имя и время -->
+                <span class="username">{{.Username}}</span> &bull;
+                <span class="created-at">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</span>
+              {{else}}
+                <!-- Пост “из всех тредов”: ссылка на тред + имя + время -->
+                <span class="thread-link">
+                  <a href="/?thread_id={{.ThreadID}}">Тред #{{.ThreadID}}</a>
+                </span>
+                &bull;
+                <span class="username">{{.Username}}</span> &bull;
+                <span class="created-at">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</span>
+              {{end}}
+            </div>
+
+            <div class="post-content" style="margin-top: 8px;">
+              {{.Content}}
+            </div>
+
+            {{if .ImageIDs}}
+              <div class="post-images" style="margin-top: 8px;">
+                {{range .ImageIDs}}
+                  <img src="/images/{{.}}" 
+                       alt="Картинка поста №{{ $post.PostID }}" 
+                       style="max-width:300px;margin-top:5px;">
+                {{end}}
+              </div>
+            {{end}}
+
+            <!-- Блок комментариев под каждым постом -->
+            <div class="comments-section" style="margin-top: 12px; padding-left: 20px;">
+              <h4>Комментарии</h4>
+              {{if .Comments}}
+                {{range .Comments}}
+                  <div class="comment" style="margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">
+                    <span class="comment-username"><b>{{.Username}}</b></span> &bull;
+                    <span class="comment-time">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</span>
+                    <div class="comment-content" style="margin-top: 4px;">
+                      {{.Content}}
+                    </div>
+                  </div>
+                {{end}}
+              {{else}}
+                <p style="color:#666;font-style:italic;">Пока нет комментариев</p>
+              {{end}}
+            </div>
+
+            <!-- Форма добавления нового комментария под каждым постом -->
+            <div class="add-comment-form" style="margin-top: 10px; padding-left: 20px;">
+              <form action="/comments" method="POST">
+                <!-- Нужные скрытые поля -->
+                <input type="hidden" name="thread_id" value="{{if $.CurrentThread}}{{$.CurrentThread.ThreadID}}{{else}}0{{end}}">
+                <input type="hidden" name="post_id" value="{{ $post.PostID }}">
+                <input type="hidden" name="user_id" value="1">
+                <!-- Поле redirect_thread: если был текущий тред, вернёмся на ?thread_id=… -->
+                {{if $.CurrentThread}}
+                  <input type="hidden" name="redirect_thread" value="1">
+                {{end}}
+                <div>
+                  <textarea name="content" rows="2" placeholder="Ваш комментарий"></textarea>
+                </div>
+                <div style="margin-top: 5px;">
+                  <button type="submit">Добавить комментарий</button>
+                </div>
+              </form>
+            </div>
+          </div>
+          <hr/>
+        {{end}}
+      {{else}}
+        <p>Постов пока нет.</p>
+      {{end}}
+    </div>
+
+    <!-- Правый сайдбар: форма создания нового поста -->
+    <div class="sidebar-right">
+      <h3>Добавить новый пост</h3>
+      <form action="/posts" method="POST" enctype="multipart/form-data">
+        <div>
+          <label for="thread_id_select">Выберите тред:</label>
+          <select name="thread_id" id="thread_id_select">
+            {{if .Threads}}
+              {{range .Threads}}
+                <option value="{{.ThreadID}}">{{.Title}}</option>
+              {{end}}
+            {{else}}
+              <option disabled>Сначала создайте тред</option>
+            {{end}}
+          </select>
+        </div>
+
+        <input type="hidden" name="user_id" value="1">
+
+        <div style="margin-top: 8px;">
+          <textarea name="content" rows="4" placeholder="Содержание нового поста"></textarea>
+        </div>
+
+        <div style="margin-top: 8px;">
+          <label for="image">Картинка (необязательно):</label>
+          <input type="file" name="image" id="image" accept="image/*">
+        </div>
+
+        <div style="margin-top: 8px;">
+          <button type="submit">Создать пост</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

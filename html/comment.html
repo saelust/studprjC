@@ -1,0 +1,56 @@
+{{define "comment_form"}}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Новый комментарий</title>
+  <link rel="stylesheet" href="/css/css.css">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <div class="header">
+    <a href="/thread/{{.ThreadID}}" class="back-button">← Назад к треду</a>
+  </div>
+
+  <div class="container">
+    <!-- Левый сайдбар: форма создания треда + список тредов -->
+    <div class="sidebar-left">
+      <h3>Создать тред</h3>
+      <form action="/threads" method="POST">
+        <div><input type="text" name="title" placeholder="Заголовок треда"></div>
+        <div><button type="submit">Создать тред</button></div>
+      </form>
+      <hr/>
+      <h3>Список тредов</h3>
+      <ul>
+        {{if .Threads}}
+          {{range .Threads}}
+            <li>
+              <a href="/thread/{{.ThreadID}}">{{.Title}}</a>
+              <span style="color:#666;font-size:0.9em;"> ({{.CreatedAt.Format "2006-01-02 15:04"}})</span>
+            </li>
+          {{end}}
+        {{else}}
+          <li>Тредов пока нет.</li>
+        {{end}}
+      </ul>
+    </div>
+
+    <!-- Центральная колонка: форма для создания комментария -->
+    <div class="content">
+      <h2>Комментарий к посту №{{.PostID}} в треде №{{.ThreadID}}</h2>
+      <form action="/comments" method="POST">
+        <input type="hidden" name="thread_id" value="{{.ThreadID}}">
+        <input type="hidden" name="post_id" value="{{.PostID}}">
+        <input type="hidden" name="user_id" value="1">
+        <div><textarea name="content" rows="5" placeholder="Ваш комментарий"></textarea></div>
+        <div style="margin-top:10px;"><button type="submit">Отправить</button></div>
+      </form>
+    </div>
+
+    <!-- Правый сайдбар -->
+    <div class="sidebar-right"></div>
+  </div>
+</body>
+</html>
+{{end}}
