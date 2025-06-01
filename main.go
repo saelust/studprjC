@@ -64,7 +64,7 @@ func connectToDB() (*sql.DB, error) {
 	dsn := os.Getenv("DATABASE_PUBLIC_URL")
 	if dsn == "" {
 		// Настройте под свои параметры, если требуется
-		dsn = "host=switchyard.proxy.rlwy.net port=48837 user=postgres password=jtYqvohthKjvrJMpGnvivJWcLcwUSzm dbname=railway sslmode=disable"
+		dsn = "host=switchyard.proxy.rlwy.net port=48837 user=postgres password=jtYqvohthKjvrJMpGnvivJWcLcwUSzmD dbname=railway sslmode=disable"
 	}
 
 	return sql.Open("postgres", dsn)
