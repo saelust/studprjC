@@ -1,9 +1,7 @@
 package main
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"html/template"
 	"io"
@@ -25,14 +23,14 @@ import (
 // -----------------------------
 
 type Post struct {
-	PostID    int
-	ThreadID  int
-	UserID    int
-	Username  string
-	Content   string
-	CreatedAt time.Time
-	ImageIDs  []int
-	Comments  []Comment
+	PostID     int
+	ThreadID   int
+	UserID     int
+	Username   string
+	Content    string
+	CreatedAt  time.Time
+	ImageIDs   []int
+	Comments   []Comment
 }
 
 type Thread struct {
@@ -48,6 +46,7 @@ type Comment struct {
 	Username  string
 	Content   string
 	CreatedAt time.Time
+	ImageIDs  []int
 }
 
 // Данные для шаблона main.html
@@ -57,20 +56,6 @@ type TemplateData struct {
 	CurrentThread *Thread
 }
 
-// Данные для шаблона thread.html
-type ThreadPageData struct {
-	Thread  Thread
-	Posts   []Post
-	Threads []Thread
-}
-
-// Данные для шаблона comment.html
-type CommentFormData struct {
-	ThreadID int
-	PostID   int
-	Threads  []Thread
-}
-
 // -----------------------------
 // Подключение к БД
 // -----------------------------
@@ -78,77 +63,10 @@ type CommentFormData struct {
 func connectToDB() (*sql.DB, error) {
 	dsn := os.Getenv("DATABASE_PUBLIC_URL")
 	if dsn == "" {
-		dsn = "host=switchyard.proxy.rlwy.net port=48837 user=postgres password=jtYqvohthKjvrJMpGnvivJWcLcwUSzmD dbname=railway sslmode=disable"
+		// Настройте под свои параметры, если требуется
+		dsn = "host=localhost port=5432 user=postgres password=123 dbname=golang sslmode=disable"
 	}
-	
 	return sql.Open("postgres", dsn)
-}
-
-// -----------------------------
-// Пользователи (регистрация)
-// -----------------------------
-
-func createUser(db *sql.DB, username, passwordHash string) (int, error) {
-	const query = `
-		INSERT INTO users (username, password_hash)
-		VALUES ($1, $2)
-		RETURNING user_id;
-	`
-	var newID int
-	err := db.QueryRow(query, username, passwordHash).Scan(&newID)
-	if err != nil {
-		return 0, fmt.Errorf("createUser: %w", err)
-	}
-	return newID, nil
-}
-
-func newUserFormHandler(w http.ResponseWriter, r *http.Request) {
-	// Простейшая страница регистрации (можно убрать, если не нужен)
-	tmpl := template.Must(template.ParseFiles("html/user.html"))
-	_ = tmpl.ExecuteTemplate(w, "new_user", nil)
-}
-
-func addUserHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Не удалось прочитать форму", http.StatusBadRequest)
-		return
-	}
-
-	username := r.FormValue("username")
-	password := r.FormValue("password")
-	confirm := r.FormValue("password_confirm")
-
-	if username == "" || password == "" || confirm == "" {
-		http.Error(w, "Все поля обязательны", http.StatusBadRequest)
-		return
-	}
-	if password != confirm {
-		http.Error(w, "Пароли не совпадают", http.StatusBadRequest)
-		return
-	}
-
-	hash := sha256.Sum256([]byte(password))
-	passwordHash := hex.EncodeToString(hash[:])
-
-	db, err := connectToDB()
-	if err != nil {
-		http.Error(w, "Ошибка подключения к БД", http.StatusInternalServerError)
-		return
-	}
-	defer db.Close()
-
-	_, err = createUser(db, username, passwordHash)
-	if err != nil {
-
-		http.Error(w, "Не удалось создать пользователя", http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // -----------------------------
@@ -314,9 +232,9 @@ func getImageIDsByPostID(db *sql.DB, postID int) ([]int, error) {
 }
 
 func savePostImage(db *sql.DB, postID int, file multipart.File, header *multipart.FileHeader) error {
-	bytes, err := io.ReadAll(file)
+	imgBytes, err := io.ReadAll(file)
 	if err != nil {
-		return fmt.Errorf("savePostImage read: %w", err)
+		return fmt.Errorf("savePostImage: %w", err)
 	}
 	mimeType := header.Header.Get("Content-Type")
 	if mimeType == "" {
@@ -330,7 +248,7 @@ func savePostImage(db *sql.DB, postID int, file multipart.File, header *multipar
 		INSERT INTO post_images (post_id, image_data, image_mime)
 		VALUES ($1, $2, $3);
 	`
-	if _, err := db.Exec(query, postID, bytes, mimeType); err != nil {
+	if _, err := db.Exec(query, postID, imgBytes, mimeType); err != nil {
 		return fmt.Errorf("savePostImage: %w", err)
 	}
 	return nil
@@ -371,7 +289,60 @@ func getCommentsByPostID(db *sql.DB, postID int) ([]Comment, error) {
 	return comments, nil
 }
 
-func addCommentHandler(w http.ResponseWriter, r *http.Request) {
+// Для изображений в комментариях:
+func getImageIDsByCommentID(db *sql.DB, commentID int) ([]int, error) {
+	const query = `
+		SELECT image_id
+		FROM comment_images
+		WHERE comment_id = $1
+		ORDER BY image_id ASC;
+	`
+	rows, err := db.Query(query, commentID)
+	if err != nil {
+		return nil, fmt.Errorf("getImageIDsByCommentID: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var imgID int
+		if err := rows.Scan(&imgID); err != nil {
+			return nil, fmt.Errorf("getImageIDsByCommentID scan: %w", err)
+		}
+		ids = append(ids, imgID)
+	}
+	return ids, nil
+}
+
+func saveCommentImage(db *sql.DB, commentID int, file multipart.File, header *multipart.FileHeader) error {
+	imgBytes, err := io.ReadAll(file)
+	if err != nil {
+		return fmt.Errorf("saveCommentImage: %w", err)
+	}
+	mimeType := header.Header.Get("Content-Type")
+	if mimeType == "" {
+		ext := filepath.Ext(header.Filename)
+		mimeType = mime.TypeByExtension(ext)
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+	}
+	const query = `
+		INSERT INTO comment_images (comment_id, image_data, image_mime)
+		VALUES ($1, $2, $3);
+	`
+	if _, err := db.Exec(query, commentID, imgBytes, mimeType); err != nil {
+		return fmt.Errorf("saveCommentImage: %w", err)
+	}
+	return nil
+}
+
+// -----------------------------
+// Обработчики HTTP
+// -----------------------------
+
+// 1) Создание треда (POST /threads)
+func addThreadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
 		return
@@ -380,18 +351,12 @@ func addCommentHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Не удалось прочитать форму", http.StatusBadRequest)
 		return
 	}
-
-	// Парсим thread_id и post_id из формы
-	threadID, err1 := strconv.Atoi(r.FormValue("thread_id"))
-	postID, err2 := strconv.Atoi(r.FormValue("post_id"))
-	userID, err3 := strconv.Atoi(r.FormValue("user_id"))
-	content := r.FormValue("content")
-	if err1 != nil || err2 != nil || err3 != nil || content == "" {
-		http.Error(w, "Неверные поля формы", http.StatusBadRequest)
+	title := r.FormValue("title")
+	if title == "" {
+		http.Error(w, "Название треда не может быть пустым", http.StatusBadRequest)
 		return
 	}
 
-	// Сохраняем комментарий
 	db, err := connectToDB()
 	if err != nil {
 		http.Error(w, "Ошибка подключения к БД", http.StatusInternalServerError)
@@ -399,68 +364,17 @@ func addCommentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	const query = `
-		INSERT INTO comments (post_id, user_id, content, created_at)
-		VALUES ($1, $2, $3, NOW());
-	`
-	if _, err := db.Exec(query, postID, userID, content); err != nil {
-		http.Error(w, "Не удалось сохранить комментарий", http.StatusInternalServerError)
+	newThreadID, err := createThread(db, title)
+	if err != nil {
+		http.Error(w, "Не удалось создать тред: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	log.Printf("Создан новый тред, ID = %d", newThreadID)
 
-	// Если был выбран конкретный тред, возвращаем пользователя обратно на main с ?thread_id=…
-	if threadIDStr := r.FormValue("redirect_thread"); threadIDStr != "" {
-		http.Redirect(w, r, fmt.Sprintf("/?thread_id=%d", threadID), http.StatusSeeOther)
-		return
-	}
-	// Иначе просто на главную
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
-func newCommentFormHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
-	q := r.URL.Query()
-	threadIDStr := q.Get("thread_id")
-	postIDStr := q.Get("post_id")
-	if threadIDStr == "" || postIDStr == "" {
-		http.Error(w, "thread_id и post_id обязательны", http.StatusBadRequest)
-		return
-	}
-	threadID, err1 := strconv.Atoi(threadIDStr)
-	postID, err2 := strconv.Atoi(postIDStr)
-	if err1 != nil || err2 != nil {
-		http.Error(w, "Неверные параметры", http.StatusBadRequest)
-		return
-	}
 
-	db, err := connectToDB()
-	if err != nil {
-		http.Error(w, "Ошибка подключения к БД", http.StatusInternalServerError)
-		return
-	}
-	defer db.Close()
-
-	threads, err := getAllThreads(db)
-	if err != nil {
-		http.Error(w, "Не удалось получить треды", http.StatusInternalServerError)
-		return
-	}
-
-	data := CommentFormData{
-		ThreadID: threadID,
-		PostID:   postID,
-		Threads:  threads,
-	}
-	tmpl := template.Must(template.ParseFiles("html/comment.html"))
-	_ = tmpl.ExecuteTemplate(w, "comment_form", data)
-}
-
-// -----------------------------
-// Обработчик создания поста
-// -----------------------------
-
+// 2) Создание поста (POST /posts)
 func addPostHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
@@ -470,11 +384,12 @@ func addPostHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Не удалось разобрать форму", http.StatusBadRequest)
 		return
 	}
+
 	threadID, err1 := strconv.Atoi(r.FormValue("thread_id"))
 	userID, err2 := strconv.Atoi(r.FormValue("user_id"))
 	content := r.FormValue("content")
 	if err1 != nil || err2 != nil || content == "" {
-		http.Error(w, "Неверные поля формы", http.StatusBadRequest)
+		http.Error(w, "Неверные поля формы для поста", http.StatusBadRequest)
 		return
 	}
 
@@ -487,34 +402,41 @@ func addPostHandler(w http.ResponseWriter, r *http.Request) {
 
 	newPostID, err := createPost(db, threadID, userID, content)
 	if err != nil {
-		http.Error(w, "Не удалось сохранить пост", http.StatusInternalServerError)
+		http.Error(w, "Не удалось сохранить пост: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	log.Printf("Создан новый пост (thread_id=%d) ID = %d", threadID, newPostID)
 
+	// Загружаем фото к посту (если есть)
 	file, header, err := r.FormFile("image")
 	if err == nil && header.Filename != "" {
 		defer file.Close()
 		if saveErr := savePostImage(db, newPostID, file, header); saveErr != nil {
-			log.Printf("Ошибка при сохранении картинки: %v", saveErr)
+			log.Printf("Ошибка сохранения картинки для post_id=%d: %v", newPostID, saveErr)
 		}
 	}
 
-	// Редиректим на страницу треда, а не на главную
-	http.Redirect(w, r, fmt.Sprintf("/thread/%d", threadID), http.StatusSeeOther)
+	// После создания редиректим сразу на страницу этого треда
+	http.Redirect(w, r, fmt.Sprintf("/?thread_id=%d", threadID), http.StatusSeeOther)
 }
 
-func addThreadHandler(w http.ResponseWriter, r *http.Request) {
+// 3) Создание комментария (POST /comments)
+func addCommentHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Не удалось прочитать форму", http.StatusBadRequest)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		http.Error(w, "Не удалось разобрать форму", http.StatusBadRequest)
 		return
 	}
-	title := r.FormValue("title")
-	if title == "" {
-		http.Error(w, "Название треда пустое", http.StatusBadRequest)
+
+	threadID, err1 := strconv.Atoi(r.FormValue("thread_id"))
+	postID, err2 := strconv.Atoi(r.FormValue("post_id"))
+	userID, err3 := strconv.Atoi(r.FormValue("user_id"))
+	content := r.FormValue("content")
+	if err1 != nil || err2 != nil || err3 != nil || content == "" {
+		http.Error(w, "Неверные поля формы для комментария", http.StatusBadRequest)
 		return
 	}
 
@@ -525,18 +447,37 @@ func addThreadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	_, err = createThread(db, title)
-	if err != nil {
-		http.Error(w, "Не удалось создать тред", http.StatusInternalServerError)
+	// Вставляем сам комментарий
+	const insertComment = `
+		INSERT INTO comments (post_id, user_id, content, created_at)
+		VALUES ($1, $2, $3, NOW())
+		RETURNING comment_id;
+	`
+	var newCommentID int
+	if err := db.QueryRow(insertComment, postID, userID, content).Scan(&newCommentID); err != nil {
+		http.Error(w, "Не удалось сохранить комментарий: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Printf("Создан новый комментарий (post_id=%d) ID = %d", postID, newCommentID)
+
+	// Загружаем фото к комментарию (если есть)
+	file, header, err := r.FormFile("image")
+	if err == nil && header.Filename != "" {
+		defer file.Close()
+		if saveErr := saveCommentImage(db, newCommentID, file, header); saveErr != nil {
+			log.Printf("Ошибка сохранения картинки для comment_id=%d: %v", newCommentID, saveErr)
+		}
+	}
+
+	// Проверяем, был ли запрос с redirect_thread=1
+	if r.FormValue("redirect_thread") == "1" {
+		http.Redirect(w, r, fmt.Sprintf("/?thread_id=%d", threadID), http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// -----------------------------
-// Главная страница и страница треда
-// -----------------------------
-
+// 4) Основная страница (GET / или /?thread_id=…)
 func mainFunc(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
@@ -545,13 +486,15 @@ func mainFunc(w http.ResponseWriter, r *http.Request) {
 
 	db, err := connectToDB()
 	if err != nil {
-		http.Error(w, "Ошибка подключения к БД", http.StatusInternalServerError)
+		http.Error(w, "Ошибка подключения к БД: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer db.Close()
 
-	var posts []Post
-	var currentThread *Thread
+	var (
+		posts         []Post
+		currentThread *Thread
+	)
 
 	threadParam := r.URL.Query().Get("thread_id")
 	if threadParam != "" {
@@ -562,35 +505,55 @@ func mainFunc(w http.ResponseWriter, r *http.Request) {
 		}
 		th, err := getThreadByID(db, tid)
 		if err != nil {
-			http.Error(w, "Тред не найден", http.StatusNotFound)
+			http.Error(w, "Тред не найден: "+err.Error(), http.StatusNotFound)
 			return
 		}
 		currentThread = &th
 
 		posts, err = getPostsByThreadID(db, tid)
 		if err != nil {
-			http.Error(w, "Не удалось получить посты", http.StatusInternalServerError)
+			http.Error(w, "Не удалось получить посты треда: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	} else {
 		posts, err = getRecentPosts(db)
 		if err != nil {
-			http.Error(w, "Не удалось получить последние посты", http.StatusInternalServerError)
+			http.Error(w, "Не удалось получить последние посты: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
-	// Для каждого поста достаём картинки и комментарии
+	// Для каждого поста достаём картинки и комментарии (+ картинки комментариев)
 	for i := range posts {
-		ids, _ := getImageIDsByPostID(db, posts[i].PostID)
+		ids, err := getImageIDsByPostID(db, posts[i].PostID)
+		if err != nil {
+			http.Error(w, "Ошибка загрузки картинок поста: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 		posts[i].ImageIDs = ids
-		comments, _ := getCommentsByPostID(db, posts[i].PostID)
+
+		comments, err := getCommentsByPostID(db, posts[i].PostID)
+		if err != nil {
+			http.Error(w, "Ошибка загрузки комментариев: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Для каждого комментария достаём картинки
+		for j := range comments {
+			cids, err := getImageIDsByCommentID(db, comments[j].CommentID)
+			if err != nil {
+				http.Error(w, "Ошибка загрузки картинок комментария: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			comments[j].ImageIDs = cids
+		}
+
 		posts[i].Comments = comments
 	}
 
 	threads, err := getAllThreads(db)
 	if err != nil {
-		http.Error(w, "Не удалось получить треды", http.StatusInternalServerError)
+		http.Error(w, "Не удалось получить треды: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -601,68 +564,12 @@ func mainFunc(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tmpl := template.Must(template.ParseFiles("html/main.html"))
-	_ = tmpl.ExecuteTemplate(w, "main", data)
+	if err := tmpl.ExecuteTemplate(w, "main", data); err != nil {
+		http.Error(w, "Ошибка рендеринга шаблона: "+err.Error(), http.StatusInternalServerError)
+	}
 }
 
-func threadHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
-	vars := mux.Vars(r)
-	idStr := vars["id"]
-	threadID, err := strconv.Atoi(idStr)
-	if err != nil {
-		http.Error(w, "Неверный ID треда", http.StatusBadRequest)
-		return
-	}
-
-	db, err := connectToDB()
-	if err != nil {
-		http.Error(w, "Ошибка подключения к БД", http.StatusInternalServerError)
-		return
-	}
-	defer db.Close()
-
-	thread, err := getThreadByID(db, threadID)
-	if err != nil {
-		http.Error(w, "Тред не найден", http.StatusNotFound)
-		return
-	}
-
-	posts, err := getPostsByThreadID(db, threadID)
-	if err != nil {
-		http.Error(w, "Не удалось получить посты", http.StatusInternalServerError)
-		return
-	}
-
-	for i := range posts {
-		ids, _ := getImageIDsByPostID(db, posts[i].PostID)
-		posts[i].ImageIDs = ids
-		comments, _ := getCommentsByPostID(db, posts[i].PostID)
-		posts[i].Comments = comments
-	}
-
-	threads, err := getAllThreads(db)
-	if err != nil {
-		http.Error(w, "Не удалось получить треды", http.StatusInternalServerError)
-		return
-	}
-
-	data := ThreadPageData{
-		Thread:  thread,
-		Posts:   posts,
-		Threads: threads,
-	}
-
-	tmpl := template.Must(template.ParseFiles("html/thread.html"))
-	_ = tmpl.ExecuteTemplate(w, "thread", data)
-}
-
-// -----------------------------
-// Картинки
-// -----------------------------
-
+// 5) Отдача картинок по image_id (для post_images и comment_images)
 func serveImageHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	idStr := vars["id"]
@@ -679,20 +586,32 @@ func serveImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	const query = `
+	// Сначала пробуем найти картинку в post_images:
+	const queryPostImg = `
 		SELECT image_data, image_mime
 		FROM post_images
 		WHERE image_id = $1;
 	`
 	var blob []byte
 	var mimeType string
-	err = db.QueryRow(query, imgID).Scan(&blob, &mimeType)
-	if err != nil {
+	err = db.QueryRow(queryPostImg, imgID).Scan(&blob, &mimeType)
+	if err == sql.ErrNoRows {
+		// Если нет в post_images, попробуем в comment_images:
+		const queryCommentImg = `
+			SELECT image_data, image_mime
+			FROM comment_images
+			WHERE image_id = $1;
+		`
+		err = db.QueryRow(queryCommentImg, imgID).Scan(&blob, &mimeType)
 		if err == sql.ErrNoRows {
 			http.NotFound(w, r)
 			return
+		} else if err != nil {
+			http.Error(w, "Ошибка при чтении картинки: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
-		http.Error(w, "Ошибка при чтении изображения", http.StatusInternalServerError)
+	} else if err != nil {
+		http.Error(w, "Ошибка при чтении картинки: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -708,17 +627,14 @@ func serveImageHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	rtr := mux.NewRouter()
 
-	// Сервим CSS
-	rtr.PathPrefix("/css/").Handler(http.StripPrefix("/css/", http.FileServer(http.Dir("./css/"))))
+	// Статика: CSS
+	rtr.PathPrefix("/css/").
+		Handler(http.StripPrefix("/css/", http.FileServer(http.Dir("./css/"))))
 
 	// Маршруты
 	rtr.HandleFunc("/", mainFunc).Methods("GET")
-	rtr.HandleFunc("/users/new", newUserFormHandler).Methods("GET")
-	rtr.HandleFunc("/users", addUserHandler).Methods("POST")
 	rtr.HandleFunc("/threads", addThreadHandler).Methods("POST")
 	rtr.HandleFunc("/posts", addPostHandler).Methods("POST")
-	rtr.HandleFunc("/thread/{id}", threadHandler).Methods("GET")
-	rtr.HandleFunc("/comments/new", newCommentFormHandler).Methods("GET")
 	rtr.HandleFunc("/comments", addCommentHandler).Methods("POST")
 	rtr.HandleFunc("/images/{id}", serveImageHandler).Methods("GET")
 
