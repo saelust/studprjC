@@ -78,8 +78,9 @@ type CommentFormData struct {
 func connectToDB() (*sql.DB, error) {
 	dsn := os.Getenv("DATABASE_PUBLIC_URL")
 	if dsn == "" {
-		dsn = "host=localhost port=5432 user=postgres password=123 dbname=golang sslmode=disable"
+		dsn = "host=switchyard.proxy.rlwy.net port=48837 user=postgres password=jtYqvohthKjvrJMpGnvivJWcLcwUSzmD@switchyard dbname=railway sslmode=disable"
 	}
+	
 	return sql.Open("postgres", dsn)
 }
 
